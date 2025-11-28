@@ -37,9 +37,13 @@ public class AuthService {
         if (userRepository.existsByPhone(request.getPhone())) {
             throw new BusinessException("Phone already exists");
         }
+        if (request.getEmail() != null && !request.getEmail().isEmpty() && userRepository.existsByEmail(request.getEmail())) {
+            throw new BusinessException("Email already exists");
+        }
         
         User user = new User();
         user.setUsername(request.getUsername());
+        user.setEmail(request.getPhone());
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setFullName(request.getFullName());
@@ -86,19 +90,32 @@ public class AuthService {
         
         return mapToLoginResponse(user, token);
     }
-    
+
     @Transactional
     public void registerWithOtp(RegisterRequest request) {
+        System.out.println("================== START REGISTER WITH OTP ==================");
+        System.out.println("Request - Username: " + request.getUsername());
+        System.out.println("Request - Phone: " + request.getPhone());
+        System.out.println("Request - Email: " + request.getEmail());
+
         if (userRepository.existsByUsername(request.getUsername())) {
+            System.out.println("ERROR: Username already exists");
             throw new BusinessException("Username already exists");
         }
         if (userRepository.existsByPhone(request.getPhone())) {
+            System.out.println("ERROR: Phone already exists");
             throw new BusinessException("Phone already exists");
         }
-        
-        // Create user but set as inactive (waiting for OTP verification)
+        if (request.getEmail() != null && !request.getEmail().isEmpty() && userRepository.existsByEmail(request.getEmail())) {
+            System.out.println("ERROR: Email already exists");
+            throw new BusinessException("Email already exists");
+        }
+
+        System.out.println("Validation passed, creating user...");
+
         User user = new User();
         user.setUsername(request.getUsername());
+        user.setEmail(request.getPhone());
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setFullName(request.getFullName() != null ? request.getFullName() : request.getUsername());
@@ -106,19 +123,39 @@ public class AuthService {
         user.setRole(UserRole.USER);
         user.setMemberTier(MemberTier.BRONZE);
         user.setPoints(0);
-        user.setActive(false); // Inactive until OTP verified
+        user.setActive(false);
         user.setIsBlocked(false);
-        
-        userRepository.save(user);
-        
-        // Send OTP to email
-        String email = request.getEmail();
+        // --- LOGIC MỚI: TẠO OTP VÀ GÁN LUÔN TRƯỚC KHI SAVE ---
+        String otp = otpService.generateOtp();
+        user.setOtp(otp);
+        user.setOtpExpiry(java.time.LocalDateTime.now().plusMinutes(5)); // Set thời hạn 5 phút
+
+        System.out.println("User object created, saving to database...");
+        user = userRepository.save(user);
+        System.out.println("User saved! User ID: " + user.getId());
+        System.out.println("User in DB - Username: " + user.getUsername());
+        System.out.println("User in DB - Phone: " + user.getPhone());
+        System.out.println("User in DB - Email: " + user.getEmail());
+        System.out.println("User in DB - Active: " + user.getActive());
+        System.out.println("User in DB - OTP before send: " + user.getOtp());
+
+        String email = request.getPhone();
         if (email == null || email.isEmpty()) {
-            // Fallback: use phone as email if not provided
-            email = request.getPhone().contains("@") ? request.getPhone() : request.getPhone() + "@temp.com";
+            System.out.println("ERROR: Email is null or empty");
+            throw new BusinessException("Email is required for OTP registration");
         }
-        
-        otpService.sendOtp(request.getPhone(), email);
+
+        System.out.println("Calling otpService.sendOtp()...");
+        try {
+            otpService.sendOtp(otp, email);
+            System.out.println("otpService.sendOtp() completed successfully!");
+        } catch (Exception e) {
+            System.err.println("ERROR in otpService.sendOtp(): " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+
+        System.out.println("================== END REGISTER WITH OTP ==================");
     }
     
     @Transactional
@@ -134,6 +171,8 @@ public class AuthService {
         
         // Activate user
         user.setActive(true);
+        user.setOtp(null);
+        user.setOtpExpiry(null);
         user = userRepository.save(user);
         
         // Generate token
@@ -144,16 +183,49 @@ public class AuthService {
     }
     
     @Transactional(readOnly = true)
-    public void resendOtp(String phone) {
-        User user = userRepository.findByPhone(phone)
-                .orElseThrow(() -> new BusinessException("User not found"));
-        
-        String email = phone + "@temp.com";
-        if (phone.contains("@")) {
-            email = phone;
+    public void resendOtp(String phoneOrEmail) {
+        User user = null;
+        String email = null;
+        String phone = null;
+        String otp = otpService.generateOtp();
+
+        if (phoneOrEmail != null && phoneOrEmail.contains("@")) {
+            user = userRepository.findByEmail(phoneOrEmail).orElse(null);
+            email = phoneOrEmail;
+            if (user != null) phone = user.getPhone();
+        } else {
+            user = userRepository.findByPhone(phoneOrEmail).orElse(null);
+            if (user != null) {
+                phone = user.getPhone();
+                email = user.getPhone();
+                user.setOtp(otp);
+                user.setOtpExpiry(java.time.LocalDateTime.now().plusMinutes(5)); // Set thời hạn 5 phút
+
+            }
         }
-        
-        otpService.sendOtp(phone, email);
+        if (user == null) {
+            throw new BusinessException("User not found");
+        }
+        if (email == null || email.isEmpty()) {
+            throw new BusinessException("Email is not set for this user");
+        }
+        otpService.sendOtp(otp, email);
+    }
+
+    @Transactional
+    public LoginResponse verifyOtpAndActivateByEmail(String email, String otp) {
+        if (!otpService.verifyOtpByEmail(email, otp)) {
+            throw new BusinessException("Invalid or expired OTP");
+        }
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new BusinessException("User not found"));
+        user.setActive(true);
+        user.setOtp(null);
+        user.setOtpExpiry(null);
+        user = userRepository.save(user);
+        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
+        String token = jwtUtil.generateToken(userDetails, user.getRole().name());
+        return mapToLoginResponse(user, token);
     }
     
     private LoginResponse mapToLoginResponse(User user, String token) {

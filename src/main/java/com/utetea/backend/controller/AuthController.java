@@ -30,28 +30,52 @@ public class AuthController {
     @PostMapping("/register")
     @Operation(summary = "Đăng ký tài khoản", description = "Tạo tài khoản USER mới với username, phone, password")
     public ResponseEntity<ApiResponse<LoginResponse>> register(@Valid @RequestBody RegisterRequest request) {
+        System.out.println("========== CONTROLLER END ==========");
+        System.out.println("========== CONTROLLER END ==========");
+        System.out.println("========== CONTROLLER END ==========");
+        System.out.println("========== CONTROLLER END ==========");
+        System.out.println("========== CONTROLLER END ==========");
+
         LoginResponse response = authService.register(request);
         return ResponseEntity.ok(ApiResponse.success("Registration successful", response));
     }
-    
+
     @PostMapping("/register-with-otp")
     @Operation(summary = "Đăng ký với OTP", description = "Bước 1: Đăng ký và gửi OTP qua email")
     public ResponseEntity<ApiResponse<String>> registerWithOtp(@Valid @RequestBody RegisterRequest request) {
+        System.out.println("========== CONTROLLER START ==========");
+        System.out.println("Request username: " + request.getUsername());
+        System.out.println("Request phone: " + request.getPhone());
+        System.out.println("Request email: " + request.getEmail());
+
+        System.out.println("Calling authService.registerWithOtp()...");
         authService.registerWithOtp(request);
-        return ResponseEntity.ok(ApiResponse.success("OTP sent to your email. Please verify to complete registration."));
+        System.out.println("authService.registerWithOtp() completed!");
+
+        System.out.println("Returning response...");
+        ResponseEntity<ApiResponse<String>> response = ResponseEntity.ok(ApiResponse.success("OTP sent to your email. Please verify to complete registration."));
+        System.out.println("========== CONTROLLER END ==========");
+        return response;
     }
-    
-    @PostMapping("/verify-otp")
+
+    @PostMapping("/otp-verify")
     @Operation(summary = "Xác thực OTP", description = "Bước 2: Xác thực OTP để hoàn tất đăng ký")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyOtp(@Valid @RequestBody com.utetea.backend.dto.OtpRequest request) {
-        LoginResponse response = authService.verifyOtpAndActivate(request.getPhone(), request.getOtp());
+        LoginResponse response;
+        if (request.getEmail() != null && !request.getEmail().isEmpty()) {
+            response = authService.verifyOtpAndActivateByEmail(request.getEmail(), request.getOtp());
+        } else if (request.getPhone() != null && !request.getPhone().isEmpty()) {
+            response = authService.verifyOtpAndActivate(request.getPhone(), request.getOtp());
+        } else {
+            throw new com.utetea.backend.exception.BusinessException("Email or Phone is required");
+        }
         return ResponseEntity.ok(ApiResponse.success("Account activated successfully", response));
     }
-    
+
     @PostMapping("/resend-otp")
     @Operation(summary = "Gửi lại OTP", description = "Gửi lại mã OTP nếu hết hạn")
-    public ResponseEntity<ApiResponse<String>> resendOtp(@RequestParam String phone) {
-        authService.resendOtp(phone);
+    public ResponseEntity<ApiResponse<String>> resendOtp(@RequestParam(name = "target") String phoneOrEmail) {
+        authService.resendOtp(phoneOrEmail);
         return ResponseEntity.ok(ApiResponse.success("OTP resent successfully"));
     }
     

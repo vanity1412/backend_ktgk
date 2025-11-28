@@ -1,5 +1,6 @@
 package com.utetea.backend.service;
 
+import com.utetea.backend.model.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.mail.SimpleMailMessage;
@@ -17,12 +18,7 @@ import java.util.concurrent.TimeUnit;
 public class OtpService {
     
     private final JavaMailSender mailSender;
-    
-    // Store OTP with phone as key: phone -> OTP
-    private final Map<String, String> otpStorage = new ConcurrentHashMap<>();
-    
-    // Store OTP expiry time: phone -> expiry timestamp
-    private final Map<String, Long> otpExpiryStorage = new ConcurrentHashMap<>();
+    private final com.utetea.backend.repository.UserRepository userRepository;
     
     private static final long OTP_VALIDITY_MINUTES = 5; // OTP valid for 5 minutes
     
@@ -38,72 +34,93 @@ public class OtpService {
     /**
      * Send OTP to phone (via email for now, can integrate SMS later)
      */
-    public void sendOtp(String phone, String email) {
-        String otp = generateOtp();
-        
-        // Store OTP
-        otpStorage.put(phone, otp);
-        
-        // Store expiry time (current time + 5 minutes)
-        long expiryTime = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(OTP_VALIDITY_MINUTES);
-        otpExpiryStorage.put(phone, expiryTime);
-        
+    public void sendOtp(String otp, String email) {
+        try {
+        } catch (Exception e) {
+            System.err.println("ERROR saving user with OTP: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+
         // Send OTP via email
+        System.out.println("Preparing to send email...");
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom("watershoputetea@gmail.com");
             message.setTo(email);
             message.setSubject("UTE Tea - Mã OTP xác thực tài khoản");
             message.setText(
-                "Xin chào,\n\n" +
-                "Mã OTP của bạn là: " + otp + "\n\n" +
-                "Mã này có hiệu lực trong " + OTP_VALIDITY_MINUTES + " phút.\n\n" +
-                "Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email này.\n\n" +
-                "Trân trọng,\n" +
-                "UTE Tea Team"
+                    "Xin chào,\n\n" +
+                            "Mã OTP của bạn là: " + otp + "\n\n" +
+                            "Mã này có hiệu lực trong " + OTP_VALIDITY_MINUTES + " phút.\n\n" +
+                            "Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email này.\n\n" +
+                            "Trân trọng,\n" +
+                            "UTE Tea Team"
             );
-            
+
+            System.out.println("Sending email to: " + email);
             mailSender.send(message);
-            log.info("OTP sent to phone: {} (email: {})", phone, email);
+            System.out.println("Email sent successfully!");
         } catch (Exception e) {
+            System.err.println("ERROR sending email: " + e.getMessage());
+            e.printStackTrace();
             log.error("Failed to send OTP email: {}", e.getMessage());
             throw new RuntimeException("Failed to send OTP email");
         }
+
+        System.out.println("========== OtpService.sendOtp() END ==========");
     }
     
     /**
      * Verify OTP
      */
     public boolean verifyOtp(String phone, String otp) {
-        // Check if OTP exists
-        String storedOtp = otpStorage.get(phone);
-        if (storedOtp == null) {
-            log.warn("No OTP found for phone: {}", phone);
+        com.utetea.backend.model.User user = userRepository.findByPhone(phone).orElse(null);
+        if (user == null) {
+            log.warn("User not found for phone: {}", phone);
             return false;
         }
-        
-        // Check if OTP expired
-        Long expiryTime = otpExpiryStorage.get(phone);
-        if (expiryTime == null || System.currentTimeMillis() > expiryTime) {
-            log.warn("OTP expired for phone: {}", phone);
-            // Clean up expired OTP
-            otpStorage.remove(phone);
-            otpExpiryStorage.remove(phone);
+        if (user.getOtp() == null || user.getOtpExpiry() == null) {
+            log.warn("No OTP stored for user: {}", user.getUsername());
             return false;
         }
-        
-        // Verify OTP
-        boolean isValid = storedOtp.equals(otp);
-        
+        if (java.time.LocalDateTime.now().isAfter(user.getOtpExpiry())) {
+            log.warn("OTP expired for user: {}", user.getUsername());
+            clearOtp(phone);
+            return false;
+        }
+        boolean isValid = user.getOtp().equals(otp);
         if (isValid) {
-            // Clean up after successful verification
-            otpStorage.remove(phone);
-            otpExpiryStorage.remove(phone);
-            log.info("OTP verified successfully for phone: {}", phone);
+            clearOtp(phone);
+            log.info("OTP verified successfully for user: {}", user.getUsername());
         } else {
-            log.warn("Invalid OTP for phone: {}", phone);
+            log.warn("Invalid OTP for user: {}", user.getUsername());
         }
-        
+        return isValid;
+    }
+
+    public boolean verifyOtpByEmail(String email, String otp) {
+        com.utetea.backend.model.User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null) {
+            log.warn("User not found for email: {}", email);
+            return false;
+        }
+        if (user.getOtp() == null || user.getOtpExpiry() == null) {
+            log.warn("No OTP stored for user: {}", user.getUsername());
+            return false;
+        }
+        if (java.time.LocalDateTime.now().isAfter(user.getOtpExpiry())) {
+            log.warn("OTP expired for user: {}", user.getUsername());
+            clearOtpByEmail(email);
+            return false;
+        }
+        boolean isValid = user.getOtp().equals(otp);
+        if (isValid) {
+            clearOtpByEmail(email);
+            log.info("OTP verified successfully for user: {}", user.getUsername());
+        } else {
+            log.warn("Invalid OTP for user: {}", user.getUsername());
+        }
         return isValid;
     }
     
@@ -111,7 +128,18 @@ public class OtpService {
      * Clear OTP for a phone number
      */
     public void clearOtp(String phone) {
-        otpStorage.remove(phone);
-        otpExpiryStorage.remove(phone);
+        userRepository.findByPhone(phone).ifPresent(u -> {
+            u.setOtp(null);
+            u.setOtpExpiry(null);
+            userRepository.save(u);
+        });
+    }
+
+    public void clearOtpByEmail(String email) {
+        userRepository.findByEmail(email).ifPresent(u -> {
+            u.setOtp(null);
+            u.setOtpExpiry(null);
+            userRepository.save(u);
+        });
     }
 }

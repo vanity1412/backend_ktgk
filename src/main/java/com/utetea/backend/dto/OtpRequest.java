@@ -9,9 +9,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class OtpRequest {
-    
-    @NotBlank(message = "Phone is required")
     private String phone;
+    private String email;
     
     @NotBlank(message = "OTP is required")
     private String otp;
