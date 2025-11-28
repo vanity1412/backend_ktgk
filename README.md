@@ -6,7 +6,12 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.7-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-blue.svg)](https://www.mysql.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+# Screenshots
 
+![Screenshot 1](ảnh/1.png)
+![Screenshot 2](ảnh/2.png)
+![Screenshot 3](ảnh/3.png)
+![Screenshot 4](ảnh/4.png)
 ---
 ## 🧪 Testing
 
@@ -740,3 +745,4 @@ Nếu gặp vấn đề hoặc có câu hỏi:
 **Happy Coding! 🎉**
 
 *Last updated: November 27, 2025*
+
