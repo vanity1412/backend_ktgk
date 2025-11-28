@@ -213,19 +213,24 @@ public class AuthService {
     }
 
     @Transactional
-    public LoginResponse verifyOtpAndActivateByEmail(String email, String otp) {
+    public void verifyOtpAndActivateByEmail(String email, String otp) {
+        // 1. Check OTP
         if (!otpService.verifyOtpByEmail(email, otp)) {
-            throw new BusinessException("Invalid or expired OTP");
+            throw new BusinessException("Mã OTP không chính xác hoặc đã hết hạn");
         }
+
+        // 2. Lấy User
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
+
+        // 3. Kích hoạt User
         user.setActive(true);
         user.setOtp(null);
         user.setOtpExpiry(null);
-        user = userRepository.save(user);
-        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
-        String token = jwtUtil.generateToken(userDetails, user.getRole().name());
-        return mapToLoginResponse(user, token);
+
+        // 4. Lưu lại
+        userRepository.save(user);
+
     }
     
     private LoginResponse mapToLoginResponse(User user, String token) {
