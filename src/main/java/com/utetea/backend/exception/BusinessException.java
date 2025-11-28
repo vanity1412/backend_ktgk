@@ -1,8 +1,8 @@
 package com.utetea.backend.exception;
-
+//VU VAN THONG 23162098
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
-
+//VU VAN THONG 23162098
 @Getter
 public class BusinessException extends RuntimeException {
     private final HttpStatus status;
